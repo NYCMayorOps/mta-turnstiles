@@ -18,11 +18,15 @@ library(vroom)
 ## updated weekly on saturdays
 
 mta_base_url <- "http://web.mta.info/developers/data/nyct/turnstile/turnstile_"
-latest_date <- floor_date(Sys.Date(), "week", 6) - weeks(1)
+latest_date <- floor_date(Sys.Date(), "week", 6)
 latest_date_fmt <- label_date(format = "%y%m%d")(latest_date)
 latest_date_url <- str_c(mta_base_url, latest_date_fmt, ".txt")
 
-read_csv(latest_date_url, show_col_types = FALSE, col_types = "cccccccccdd") %>%
+df_latest <- read_csv(
+  latest_date_url,
+  show_col_types = FALSE,
+  col_types = "cccccccccdd"
+) %>%
   set_names(str_to_lower(names(.))) %>%
   rename(c_a = `c/a`) %>%
   filter(!(division %in% c("PTH", "RIT"))) %>%
@@ -39,6 +43,64 @@ read_csv(latest_date_url, show_col_types = FALSE, col_types = "cccccccccdd") %>%
 
 
 ## read data ------------------------------------------------------
+
+df_ts <- read_csv(path("data", "turnstiles.csv"))
+df_last_weekly <- read_csv(path("output", "2022_station_counts.csv"))
+
+
+# new turnstiles? -----------------------------------------------
+
+
+# TODO: Need `df_ts` to be complete object, if new rows are added
+# TODO: If new rows are added, need to be able to assign them a sign
+df_ts_new <- distinct(df_latest, id, station, linename) %>%
+  anti_join(df_ts, by = "id") %>%
+  {
+    if (nrow(.) > 0) {
+      # TODO: Add email component here
+      df_stations <- read_csv(path("data", "station_conversion.csv"))
+
+      left_join(
+        .,
+        df_stations,
+        by = c("station", "linename")
+      ) %>%
+        transmute(id, station = coalesce(station_new, station),
+                  linename = coalesce(linename_new, linename),
+                  lat = Latitude, lon = Longitude) %>%
+        bind_rows(df_ts) %>%
+        write_csv(path("data", "turnstiles.csv"))
+    } else {
+      .
+    }
+  }
+
+
+# daily counts ---------------------------------------------------
+
+# TODO: Look into whether certain turnstiles swap their direction over time
+#   - Should we be recalculating the direction each week?
+#   - With what time window? (Ugh)
+df_daily <- bind_rows(
+  select(df_ts, id, datetime, entries),
+  select(df_latest, id, datetime, entries)
+) %>%
+  arrange(id, datetime) %>%
+  group_by(id) %>%
+  mutate(d_entries = entries - lag(entries)) %>%
+  ungroup() %>%
+  left_join(select(df_ts, id, sign), by = "id") %>%
+  filter(sign * d_entries < 0) %>%
+  arrange(id, datetime) %>%
+  group_by(id) %>%
+  mutate(d_entries = (entries - lag(entries)) * sign,
+         d_time    = (datetime %--% lag(datetime)) %/% hours()) %>%
+  ungroup() %>%
+  filter(d_entries < 10000, d_entries >= 0, d_time >= -12)
+
+
+
+
 
 ### station counts ------------------------------------------------
 yr <- "2022"
@@ -150,6 +212,9 @@ tictoc::toc()
 
 ## EDITS FOR NEXT WEEK
 ## - CONSIDER SHIFTING TIME WINDOW BY 2 HOURS TO CAPTURE MORE ACCURATE WEEKEND
+##   - This is going to create a *lot* of issues with the timeframes of the
+##     weekly upload; have to wait to calculate the last day of the week until
+##     the following week? Feels unreasonable
 ## - CAN WE REDUCE NUMBER OF REDUNDANT CALCULATIONS WEEK-ON-WEEK?
 ## - MERGE CURRENT DATA W/ BASELINE DATA
 ## - RERUN CALCS ON BASELINE DATA
