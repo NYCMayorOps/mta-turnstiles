@@ -9,6 +9,7 @@ library(lubridate)
 library(fs)
 library(scales)
 library(vroom)
+library(tictoc)
 
 # data -------------------------------------
 
@@ -17,11 +18,13 @@ library(vroom)
 ## download latest data ------------------------------------------
 ## updated weekly on saturdays
 
+tic("all")
 mta_base_url <- "http://web.mta.info/developers/data/nyct/turnstile/turnstile_"
 latest_date <- floor_date(Sys.Date(), "week", 6)
 latest_date_fmt <- label_date(format = "%y%m%d")(latest_date)
 latest_date_url <- str_c(mta_base_url, latest_date_fmt, ".txt")
 
+tic("load data")
 df_latest <- read_csv(
   latest_date_url,
   show_col_types = FALSE,
@@ -44,52 +47,88 @@ df_latest <- read_csv(
 
 ## read data ------------------------------------------------------
 
-df_ts <- read_csv(path("data", "turnstiles.csv"))
+df_old_ts <- read_csv(path("output", "turnstiles", str_c(latest_date - weeks(1), ".csv")))
 df_old_weekly <- read_csv(path("output", "2022_station_counts.csv"))
-
-
-# new turnstiles? -----------------------------------------------
-
-
-# TODO: Need `df_ts` to be complete object, if new rows are added
-# TODO: If new rows are added, need to be able to assign them a sign
-df_ts_new <- distinct(df_latest, id, station, linename) %>%
-  anti_join(df_ts, by = "id") %>%
-  {
-    if (nrow(.) > 0) {
-      # TODO: Add email component here
-      df_stations <- read_csv(path("data", "station_conversion.csv"))
-
-      left_join(
-        .,
-        df_stations,
-        by = c("station", "linename")
-      ) %>%
-        transmute(id, station = coalesce(station_new, station),
-                  linename = coalesce(linename_new, linename),
-                  lat = Latitude, lon = Longitude) %>%
-        bind_rows(df_ts) %>%
-        write_csv(path("data", "turnstiles.csv"))
-    } else {
-      .
-    }
-  }
-
+df_stations <- read_csv(path("data", "stations.csv"))
+toc(log = TRUE, quiet = TRUE)
 
 # daily turnstile counts ---------------------------------------------------
 
 # TODO: Look into whether certain turnstiles swap their direction over time
 #   - Should we be recalculating the direction each week?
 #   - With what time window? (Ugh)
-df_daily <- bind_rows(
-  select(df_ts, id, datetime, entries),
+
+tic("daily turnstile counts")
+df_daily_raw <- bind_rows(
+  select(df_old_ts, id, datetime, entries),
   select(df_latest, id, datetime, entries)
 ) %>%
   arrange(id, datetime) %>%
   group_by(id) %>%
   mutate(d_entries = entries - lag(entries)) %>%
+  ungroup()
+
+
+
+## get turnstile directions -----------------------------------------------
+
+
+df_ts_dir <- group_by(df_daily_raw, id) %>%
+  filter(n() >= 5) %>%
   ungroup() %>%
-  left_join(select(df_ts, id, sign), by = "id") %>%
+  # identify most common nonzero sign direction
+  mutate(sign = sign(d_entries)) %>%
+  filter(sign != 0) %>%
+  count(id, sign) %>%
+  group_by(id) %>%
+  filter(n == max(n)) %>%
+  select(-n)
+
+
+
+## save turnstile database ------------------------------------------------
+
+tic("turnstile db")
+df_ts <- group_by(df_daily_raw, id) %>%
+  filter(datetime == max(datetime)) %>%
+  ungroup() %>%
+  full_join(
+    select(df_old_ts, id, station, linename, lon, lat),
+    by = "id"
+  ) %>%
+  {
+    if (nrow(.) > nrow(df_old_ts)) {
+      ## TODO: email me if there are new turnstiles??
+      old_ts <- filter(., !is.na(station))
+
+      new_ts <- filter(., is.na(station)) %>%
+        select(id, datetime, entries) %>%
+        left_join(distinct(df_latest, id, station, linename), by = "id") %>%
+        left_join(df_stations, by = c("station", "linename"), suffix = c("_old", "_new"))
+        transmute(
+          id, datetime, entries,
+          station = coalesce(station_new, station),
+          linename = coalesce(linename_new, linename),
+          lon = Longitude,
+          lat = Latitude
+        )
+
+      bind_rows(old_ts, new_ts)
+    } else {
+      select(., -d_entries)
+    }
+  } %>%
+  write_csv(path("output", "turnstiles", str_c(latest_date, ".csv")))
+toc(log = TRUE, quiet = TRUE)
+
+## finish turnstile counts ------------------------------------------------
+
+
+df_daily <- left_join(
+  df_daily_raw,
+  df_ts_dir,
+  by = "id"
+) %>%
   filter(sign * d_entries >= 0) %>%
   arrange(id, datetime) %>%
   group_by(id) %>%
@@ -97,11 +136,16 @@ df_daily <- bind_rows(
          d_time    = (datetime %--% lag(datetime)) %/% hours()) %>%
   ungroup() %>%
   filter(d_entries < 10000, d_entries >= 0, d_time >= -12)
+toc(log = TRUE, quiet = TRUE)
+
+# TODO: Need `df_ts` to be complete object, if new rows are added
+# TODO: If new rows are added, need to be able to assign them a sign
+
 
 
 # weekly station counts ---------------------------------------------------
 
-tictoc::tic()
+tic("latest weekly")
 df_new_weekly <- filter(
   df_daily,
   hour(datetime) %in% c(8:11, 18:21) |
@@ -126,9 +170,9 @@ df_new_weekly <- filter(
     names_from = time,
     values_from = entries
   )
-tictoc::toc()
+toc(log = TRUE, quiet = TRUE)
 
-tictoc::tic()
+tic("combined weekly")
 df_all_weekly <- full_join(
   df_new_weekly,
   df_old_weekly,
@@ -144,8 +188,14 @@ df_all_weekly <- full_join(
     weekday_pm = coalesce(weekday_pm.new, weekday_pm.old)
   ) %>%
   write_csv(path("output", str_c("test", "2022_station_counts.csv")), na = "")
-tictoc::toc()
+toc(log = TRUE, quiet = TRUE)
 
+toc(log = TRUE, quiet = TRUE)
+
+tic.log(format = FALSE) %>%
+  reduce(bind_rows) %>%
+  mutate(d = toc - tic) %>%
+  write_csv(path("output", "time-log", str_c(latest_date, ".csv")))
 
 
 ## EDITS FOR NEXT WEEK
