@@ -50,13 +50,10 @@ df_latest <- read_csv(
 df_old_ts <- read_csv(path("output", "turnstiles", str_c(latest_date - weeks(1), ".csv")))
 df_old_weekly <- read_csv(path("output", "2022_station_counts.csv"))
 df_stations <- read_csv(path("data", "stations.csv"))
+df_baseline <- read_csv(path("output", "pan_baseline_station_counts.csv"))
 toc(log = TRUE, quiet = TRUE)
 
 # daily turnstile counts ---------------------------------------------------
-
-# TODO: Look into whether certain turnstiles swap their direction over time
-#   - Should we be recalculating the direction each week?
-#   - With what time window? (Ugh)
 
 tic("daily turnstile counts")
 df_daily_raw <- bind_rows(
@@ -93,7 +90,7 @@ df_ts <- group_by(df_daily_raw, id) %>%
   filter(datetime == max(datetime)) %>%
   ungroup() %>%
   full_join(
-    select(df_old_ts, id, station, linename, lon, lat),
+    select(df_old_ts, id, station, linename),
     by = "id"
   ) %>%
   {
@@ -104,13 +101,11 @@ df_ts <- group_by(df_daily_raw, id) %>%
       new_ts <- filter(., is.na(station)) %>%
         select(id, datetime, entries) %>%
         left_join(distinct(df_latest, id, station, linename), by = "id") %>%
-        left_join(df_stations, by = c("station", "linename"), suffix = c("_old", "_new"))
+        left_join(df_stations, by = c("station", "linename"))
         transmute(
           id, datetime, entries,
           station = coalesce(station_new, station),
-          linename = coalesce(linename_new, linename),
-          lon = Longitude,
-          lat = Latitude
+          linename = coalesce(linename_new, linename)
         )
 
       bind_rows(old_ts, new_ts)
@@ -137,9 +132,6 @@ df_daily <- left_join(
   ungroup() %>%
   filter(d_entries < 10000, d_entries >= 0, d_time >= -12)
 toc(log = TRUE, quiet = TRUE)
-
-# TODO: Need `df_ts` to be complete object, if new rows are added
-# TODO: If new rows are added, need to be able to assign them a sign
 
 
 
@@ -169,26 +161,42 @@ df_new_weekly <- filter(
   pivot_wider(
     names_from = time,
     values_from = entries
-  )
+  ) %>%
+  mutate(week = week(weekdate))
 toc(log = TRUE, quiet = TRUE)
 
 tic("combined weekly")
 df_all_weekly <- full_join(
   df_new_weekly,
   df_old_weekly,
-    by = c("linename", "station", "weekdate"),
+    by = c("linename", "station", "weekdate", "week"),
     suffix = c(".new", ".old")
   ) %>%
   transmute(
     linename,
     station,
     weekdate,
+    week,
     weekend = coalesce(weekend.new, weekend.old),
     weekday_am = coalesce(weekday_am.new, weekday_am.old),
     weekday_pm = coalesce(weekday_pm.new, weekday_pm.old)
   ) %>%
-  write_csv(path("output", str_c("test", "2022_station_counts.csv")), na = "")
+  write_csv(path("output", str_c("test", "2022_station_counts.csv")), na = "NULL")
 toc(log = TRUE, quiet = TRUE)
+
+# compare weekly to baseline ------------------------------------------
+
+df_delta <- left_join(df_all_weekly, df_baseline,
+          by = c("linename", "station", "week"),
+          suffix = c("_2022", "_bl")) %>%
+  mutate(
+    d_weekend = (weekend_2022) / weekend_bl,
+    d_weekday_am = (weekday_am_2022) / weekday_am_bl,
+    d_weekday_pm = (weekday_pm_2022) / weekday_pm_bl
+  ) %>%
+  na_if(Inf) %>%
+  left_join(df_stations, by = c("linename", "station")) %>%
+  write_csv(path("output", "baseline_2022_delta_station.csv"), na = "")
 
 toc(log = TRUE, quiet = TRUE)
 
@@ -203,9 +211,7 @@ tic.log(format = FALSE) %>%
 ##   - This is going to create a *lot* of issues with the timeframes of the
 ##     weekly upload; have to wait to calculate the last day of the week until
 ##     the following week? Feels unreasonable
-## - CAN WE REDUCE NUMBER OF REDUNDANT CALCULATIONS WEEK-ON-WEEK?
-## - MERGE CURRENT DATA W/ BASELINE DATA
+## - COMBINE CURRENT DATA & BASELINE DATA FOR MAP (R/03)
 ## - RERUN CALCS ON BASELINE DATA
 ## - PUSH TO CARTO W/ API
 ## - SEND EMAIL WITH VALIDATIONS
-## - GET ON REMOTE SERVER
