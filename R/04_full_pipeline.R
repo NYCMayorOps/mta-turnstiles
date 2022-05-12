@@ -90,7 +90,7 @@ df_ts <- group_by(df_daily_raw, id) %>%
   filter(datetime == max(datetime)) %>%
   ungroup() %>%
   full_join(
-    select(df_old_ts, id, station, linename, lon, lat),
+    select(df_old_ts, id, station, linename),
     by = "id"
   ) %>%
   {
@@ -105,9 +105,7 @@ df_ts <- group_by(df_daily_raw, id) %>%
         transmute(
           id, datetime, entries,
           station = coalesce(station_new, station),
-          linename = coalesce(linename_new, linename),
-          lon = Longitude,
-          lat = Latitude
+          linename = coalesce(linename_new, linename)
         )
 
       bind_rows(old_ts, new_ts)
@@ -196,7 +194,9 @@ df_delta <- left_join(df_all_weekly, df_baseline,
     d_weekday_am = (weekday_am_2022) / weekday_am_bl,
     d_weekday_pm = (weekday_pm_2022) / weekday_pm_bl
   ) %>%
-  na_if(Inf)
+  na_if(Inf) %>%
+  left_join(df_stations, by = c("linename", "station")) %>%
+  write_csv(path("output", "baseline_2022_delta_station.csv"), na = "")
 
 toc(log = TRUE, quiet = TRUE)
 
