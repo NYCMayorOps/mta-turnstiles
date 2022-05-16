@@ -48,7 +48,8 @@ df_latest <- read_csv(
 ## read data ------------------------------------------------------
 
 df_old_ts <- read_csv(path("output", "turnstiles", str_c(latest_date - weeks(1), ".csv")))
-df_old_weekly <- read_csv(path("output", "2022_station_counts.csv"))
+df_old_weekly <- read_csv(path("output", "test2022_station_counts.csv"),
+                          na = "NULL")
 df_stations <- read_csv(path("data", "stations.csv"))
 df_baseline <- read_csv(path("output", "pan_baseline_station_counts.csv"))
 toc(log = TRUE, quiet = TRUE)
@@ -181,7 +182,7 @@ df_all_weekly <- full_join(
     weekday_am = coalesce(weekday_am.new, weekday_am.old),
     weekday_pm = coalesce(weekday_pm.new, weekday_pm.old)
   ) %>%
-  write_csv(path("output", str_c("test", "2022_station_counts.csv")), na = "NULL")
+  write_csv(path("output", "test2022_station_counts.csv"), na = "NULL")
 toc(log = TRUE, quiet = TRUE)
 
 # compare weekly to baseline ------------------------------------------
@@ -198,6 +199,9 @@ df_delta <- left_join(df_all_weekly, df_baseline,
   left_join(df_stations, by = c("linename", "station")) %>%
   write_csv(path("output", "baseline_2022_delta_station.csv"), na = "")
 
+
+
+
 toc(log = TRUE, quiet = TRUE)
 
 tic.log(format = FALSE) %>%
@@ -211,7 +215,5 @@ tic.log(format = FALSE) %>%
 ##   - This is going to create a *lot* of issues with the timeframes of the
 ##     weekly upload; have to wait to calculate the last day of the week until
 ##     the following week? Feels unreasonable
-## - COMBINE CURRENT DATA & BASELINE DATA FOR MAP (R/03)
-## - RERUN CALCS ON BASELINE DATA
 ## - PUSH TO CARTO W/ API
 ## - SEND EMAIL WITH VALIDATIONS
