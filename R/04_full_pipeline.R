@@ -10,6 +10,7 @@ library(fs)
 library(scales)
 library(vroom)
 library(tictoc)
+library(httr)
 
 # data -------------------------------------
 
@@ -40,18 +41,21 @@ df_latest <- read_csv(
     linename,
     entries
   ) %>%
-  arrange(id, datetime) %>%
-  write_csv(path("data", "2022", str_c(latest_date_fmt, ".csv")))
+  arrange(id, datetime)
 
 
 
 ## read data ------------------------------------------------------
 
-df_old_ts <- read_csv(path("output", "turnstiles.csv"))
-df_old_weekly <- read_csv(path("output", "current_station_counts"),
-                          na = "NULL")
-df_stations <- read_csv(path("data", "stations.csv"))
-df_baseline <- read_csv(path("data", "baseline_station_counts.csv"))
+df_old_ts <- read_csv(path("output", "turnstiles", str_c(latest_date - weeks(1), ".csv")),
+                      show_col_types = FALSE)
+df_old_weekly <- read_csv(path("output", "current_station_counts.csv"),
+                          show_col_types = FALSE) %>%
+  filter(weekdate < min(df_latest$datetime))
+df_stations <- read_csv(path("data", "stations.csv"),
+                        show_col_types = FALSE)
+df_baseline <- read_csv(path("data", "baseline_station_counts.csv"),
+                        show_col_types = FALSE)
 toc(log = TRUE, quiet = TRUE)
 
 # daily turnstile counts ---------------------------------------------------
@@ -102,20 +106,20 @@ df_ts <- group_by(df_daily_raw, id) %>%
       new_ts <- filter(., is.na(station)) %>%
         select(id, datetime, entries) %>%
         left_join(distinct(df_latest, id, station, linename), by = "id") %>%
-        left_join(df_stations, by = c("station", "linename"))
+        left_join(df_stations, by = c("station", "linename")) %>%
         transmute(
           id, datetime, entries,
           station = coalesce(station_new, station),
           linename = coalesce(linename_new, linename)
         ) %>%
-          write_csv(path("output", "turnstiles", str_c(latest_date, ".csv")))
+        write_csv(path("output", "new-turnstiles", str_c(latest_date, ".csv")))
 
       bind_rows(old_ts, new_ts)
     } else {
       select(., -d_entries)
     }
   } %>%
-  write_csv(path("output", "turnstiles.csv"))
+  write_csv(path("output", "turnstiles", str_c(latest_date, ".csv")))
 toc(log = TRUE, quiet = TRUE)
 
 ## finish turnstile counts ------------------------------------------------
@@ -183,7 +187,7 @@ df_all_weekly <- full_join(
     weekday_am = coalesce(weekday_am.new, weekday_am.old),
     weekday_pm = coalesce(weekday_pm.new, weekday_pm.old)
   ) %>%
-  write_csv(path("output", "current_station_counts.csv"), na = "NULL")
+  write_csv(path("output", "current_station_counts.csv"), na = "")
 toc(log = TRUE, quiet = TRUE)
 
 # compare weekly to baseline ------------------------------------------
@@ -198,10 +202,26 @@ df_delta <- left_join(df_all_weekly, df_baseline,
   ) %>%
   na_if(Inf) %>%
   left_join(df_stations, by = c("linename", "station")) %>%
+  mutate(linename = linename_new, station = station_new) %>%
+  select(-ends_with("_new")) %>%
   write_csv(path("output", "baseline_2022_station_delta.csv"), na = "")
 
+# post to carto --------------------------------------------------------
 
+tic("carto_api")
+carto_user <- Sys.getenv("CARTO_USER")
+carto_key <- Sys.getenv("CARTO_KEY")
+carto_url <- str_glue("https://{carto_user}.carto.com/api/v1/imports/?api_key={carto_key}&collision_strategy=overwrite")
 
+POST(
+  carto_url,
+  body = list(
+    file = upload_file(path("output", "baseline_2022_station_delta.csv"))
+  )
+)
+toc(log = TRUE, quiet = TRUE)
+
+# finish log -----------------------------------------------------------
 
 toc(log = TRUE, quiet = TRUE)
 
