@@ -1,4 +1,6 @@
 .Rproj.user/
-data/
-output/
+data/2022/
+data/pan_baseline/
 .Rhistory
+.Renviron
+eda-files/
