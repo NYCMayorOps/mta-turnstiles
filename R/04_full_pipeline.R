@@ -47,11 +47,11 @@ df_latest <- read_csv(
 
 ## read data ------------------------------------------------------
 
-df_old_ts <- read_csv(path("output", "turnstiles", str_c(latest_date - weeks(1), ".csv")))
-df_old_weekly <- read_csv(path("output", "test2022_station_counts.csv"),
+df_old_ts <- read_csv(path("output", "turnstiles.csv"))
+df_old_weekly <- read_csv(path("output", "current_station_counts"),
                           na = "NULL")
 df_stations <- read_csv(path("data", "stations.csv"))
-df_baseline <- read_csv(path("output", "pan_baseline_station_counts.csv"))
+df_baseline <- read_csv(path("data", "baseline_station_counts.csv"))
 toc(log = TRUE, quiet = TRUE)
 
 # daily turnstile counts ---------------------------------------------------
@@ -107,14 +107,15 @@ df_ts <- group_by(df_daily_raw, id) %>%
           id, datetime, entries,
           station = coalesce(station_new, station),
           linename = coalesce(linename_new, linename)
-        )
+        ) %>%
+          write_csv(path("output", "turnstiles", str_c(latest_date, ".csv")))
 
       bind_rows(old_ts, new_ts)
     } else {
       select(., -d_entries)
     }
   } %>%
-  write_csv(path("output", "turnstiles", str_c(latest_date, ".csv")))
+  write_csv(path("output", "turnstiles.csv"))
 toc(log = TRUE, quiet = TRUE)
 
 ## finish turnstile counts ------------------------------------------------
@@ -182,7 +183,7 @@ df_all_weekly <- full_join(
     weekday_am = coalesce(weekday_am.new, weekday_am.old),
     weekday_pm = coalesce(weekday_pm.new, weekday_pm.old)
   ) %>%
-  write_csv(path("output", "test2022_station_counts.csv"), na = "NULL")
+  write_csv(path("output", "current_station_counts.csv"), na = "NULL")
 toc(log = TRUE, quiet = TRUE)
 
 # compare weekly to baseline ------------------------------------------
@@ -197,7 +198,7 @@ df_delta <- left_join(df_all_weekly, df_baseline,
   ) %>%
   na_if(Inf) %>%
   left_join(df_stations, by = c("linename", "station")) %>%
-  write_csv(path("output", "baseline_2022_delta_station.csv"), na = "")
+  write_csv(path("output", "baseline_2022_station_delta.csv"), na = "")
 
 
 

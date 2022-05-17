@@ -2,3 +2,5 @@
 data/
 output/
 .Rhistory
+.Renviron
+eda-files/
