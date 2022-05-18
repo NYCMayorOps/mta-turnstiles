@@ -55,7 +55,7 @@ df_stations <- read_csv(path("data", "stations.csv"),
                         show_col_types = FALSE)
 df_baseline <- read_csv(path("data", "baseline_station_counts.csv"),
                         show_col_types = FALSE)
-toc(log = TRUE, quiet = TRUE)
+toc(log = TRUE)
 
 # daily turnstile counts ---------------------------------------------------
 
@@ -119,7 +119,7 @@ df_ts <- group_by(df_daily_raw, id) %>%
     }
   } %>%
   write_csv(path("output", "turnstiles", str_c(latest_date, ".csv")))
-toc(log = TRUE, quiet = TRUE)
+toc(log = TRUE)
 
 ## finish turnstile counts ------------------------------------------------
 
@@ -136,7 +136,7 @@ df_daily <- left_join(
          d_time    = (datetime %--% lag(datetime)) %/% hours()) %>%
   ungroup() %>%
   filter(d_entries < 10000, d_entries >= 0, d_time >= -12)
-toc(log = TRUE, quiet = TRUE)
+toc(log = TRUE)
 
 
 
@@ -168,7 +168,7 @@ df_new_weekly <- filter(
     values_from = entries
   ) %>%
   mutate(week = week(weekdate))
-toc(log = TRUE, quiet = TRUE)
+toc(log = TRUE)
 
 tic("combined weekly")
 df_all_weekly <- full_join(
@@ -187,7 +187,7 @@ df_all_weekly <- full_join(
     weekday_pm = coalesce(weekday_pm.new, weekday_pm.old)
   ) %>%
   write_csv(path("output", "current_station_counts.csv"), na = "")
-toc(log = TRUE, quiet = TRUE)
+toc(log = TRUE)
 
 # compare weekly to baseline ------------------------------------------
 
@@ -218,11 +218,11 @@ POST(
     file = upload_file(path("output", "baseline_2022_station_delta.csv"))
   )
 )
-toc(log = TRUE, quiet = TRUE)
+toc(log = TRUE)
 
 # finish log -----------------------------------------------------------
 
-toc(log = TRUE, quiet = TRUE)
+toc(log = TRUE)
 
 tic.log(format = FALSE) %>%
   reduce(bind_rows) %>%
