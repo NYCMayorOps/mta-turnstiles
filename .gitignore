@@ -1,6 +1,6 @@
 .Rproj.user/
-data/2022/
-data/pan_baseline/
+data/
 .Rhistory
 .Renviron
 eda-files/
+output/

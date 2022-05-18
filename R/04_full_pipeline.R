@@ -50,8 +50,7 @@ df_latest <- read_csv(
 df_old_ts <- read_csv(path("output", "turnstiles", str_c(latest_date - weeks(1), ".csv")),
                       show_col_types = FALSE)
 df_old_weekly <- read_csv(path("output", "current_station_counts.csv"),
-                          show_col_types = FALSE) %>%
-  filter(weekdate < min(df_latest$datetime))
+                          show_col_types = FALSE)
 df_stations <- read_csv(path("data", "stations.csv"),
                         show_col_types = FALSE)
 df_baseline <- read_csv(path("data", "baseline_station_counts.csv"),
