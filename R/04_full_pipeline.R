@@ -2,9 +2,17 @@
 ## 2022-05-06
 ## renata gerecke
 
+# setup ------------------------------------
+
+renv::restore()
+
 # libraries --------------------------------
 
-library(tidyverse)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(stringr)
 library(lubridate)
 library(fs)
 library(scales)
@@ -100,7 +108,8 @@ df_ts <- group_by(df_daily_raw, id) %>%
   {
     if (nrow(.) > nrow(df_old_ts)) {
       ## TODO: email me if there are new turnstiles??
-      old_ts <- filter(., !is.na(station))
+      old_ts <- filter(., !is.na(station)) %>%
+        select(-d_entries)
 
       new_ts <- filter(., is.na(station)) %>%
         select(id, datetime, entries) %>%
